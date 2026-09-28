@@ -1,0 +1,301 @@
+---
+title: "Trabalho"
+format: pptx
+editor: visual
+---
+
+```{r, settings}
+
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(VGAM)
+```
+
+Organizando Bacno e Categorizando
+
+```{r}
+student_mat <- read_delim("student-mat.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+student_mat$G <- student_mat$G1  + student_mat$G2 + student_mat$G3
+
+student_mat <- student_mat %>%
+  mutate(
+    G_cat = case_when(
+      G < 36 ~ "F",
+      G >= 36 & G <= 40 ~ "A",
+      G >= 41 & G <= 45 ~ "B",
+      G >= 46 & G <= 50 ~ "C",
+      G >= 51 & G <= 55 ~ "D",
+      G >= 56 & G <= 60 ~ "E",
+      TRUE ~ NA_character_
+    ),
+    G_cat = factor(
+      G_cat,
+      levels = c("F", "E", "D", "C", "B", "A")
+    )
+  )
+
+student_mat$G_cat <- relevel(student_mat$G_cat, ref = "F")
+
+cores_G <- c(
+  "A" = "#1a9850",  # verde
+  "B" = "#66bd63",  # verde claro
+  "C" = "#fee08b",  # amarelo
+  "D" = "#fc8d59",  # laranja
+  "E" = "#f46d43",   # laranja/vermelho
+  "F" = "#d73027"  # vermelho
+)
+```
+
+Análise Descritiva
+
+Categóricas
+
+```{r}
+
+student_mat %>%
+  count(G_cat) %>%
+  mutate(
+    porcentagem = 100 * n / sum(n)
+  ) %>%
+  ggplot(aes(x = G_cat, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    vjust = -0.5
+  ) +
+  scale_fill_manual(values = cores_G) +
+  labs(
+    title = "Distribuição das categorias de desempenho",
+    x = "Categoria",
+    y = "Percentual (%)",
+    fill = "Categoria"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+
+```
+
+```{r}
+student_mat %>%
+  count(school, G_cat) %>%
+  group_by(school) %>%
+  mutate(
+    porcentagem = 100 * n / sum(n)
+  ) %>%
+  ungroup() %>%
+  ggplot(aes(x = school, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    position = position_stack(vjust = 0.5),
+    size = 3
+  ) +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    limits = c(0, 100)
+  ) +
+  labs(
+    title = "Distribuição das categorias de G por escola",
+    x = "School",
+    y = "Percentual",
+    fill = "Categoria"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+```
+
+```{r}
+student_mat %>%
+  count(sex, G_cat) %>%
+  group_by(sex) %>%
+  mutate(
+    porcentagem = 100 * n / sum(n)
+  ) %>%
+  ungroup() %>%
+  ggplot(aes(x = sex, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    position = position_stack(vjust = 0.5),
+    size = 3
+  ) +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    limits = c(0, 100)
+  ) +
+  labs(
+    title = "Distribuição das categorias de G por Sex",
+    x = "Sex",
+    y = "Percentual",
+    fill = "Categoria"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+```
+
+Numéricas
+
+```{r}
+student_mat %>%
+  group_by(G_cat) %>%
+  summarise(
+    n = sum(!is.na(age)),
+    media = mean(age, na.rm = TRUE),
+    dp = sd(age, na.rm = TRUE),
+    mediana = median(age, na.rm = TRUE),
+    Q1 = quantile(age, 0.25, na.rm = TRUE),
+    Q3 = quantile(age, 0.75, na.rm = TRUE)
+  )
+
+student_mat %>%
+  ggplot(aes(x = G_cat, y = age, fill = G_cat)) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  labs(
+    title = "Distribuição da idade por categoria de G",
+    x = "Categoria de G",
+    y = "Idade",
+    fill = "Categoria"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+```
+
+```{r}
+student_mat %>%
+  group_by(G_cat) %>%
+  summarise(
+    n = sum(!is.na(studytime)),
+    media = mean(studytime, na.rm = TRUE),
+    dp = sd(studytime, na.rm = TRUE),
+    mediana = median(studytime, na.rm = TRUE),
+    Q1 = quantile(studytime, 0.25, na.rm = TRUE),
+    Q3 = quantile(studytime, 0.75, na.rm = TRUE)
+  )
+
+student_mat %>%
+  ggplot(aes(x = G_cat, y = studytime, fill = G_cat)) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  labs(
+    title = "Distribuição do tempo de estudo por categoria de G",
+    x = "Categoria de G",
+    y = "Tempo de estudo",
+    fill = "Categoria"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+```
+
+```{r}
+student_mat %>%
+  group_by(G_cat) %>%
+  summarise(
+    n = sum(!is.na(absences)),
+    media = mean(absences, na.rm = TRUE),
+    dp = sd(absences, na.rm = TRUE),
+    mediana = median(absences, na.rm = TRUE),
+    Q1 = quantile(absences, 0.25, na.rm = TRUE),
+    Q3 = quantile(absences, 0.75, na.rm = TRUE)
+  )
+
+student_mat %>%
+  ggplot(aes(x = G_cat, y = absences, fill = G_cat)) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  labs(
+    title = "Distribuição das faltas por categoria de G",
+    x = "Categoria de G",
+    y = "Número de faltas",
+    fill = "Categoria"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+```
+
+Modelagem
+
+$$
+\operatorname{logit}\left[P(G_{\mathrm{cat}}=k)\right]
+=
+\log\left(
+\frac{P(G_{\mathrm{cat}}=k)}
+{P(G_{\mathrm{cat}}=F)}
+\right)
+=
+\eta_k
+$$
+
+$$
+\eta_k
+=
+\beta_{0k}
++
+\beta_{1k}\,\mathrm{age}
++
+\beta_{2k}\,\mathrm{studytime}
++
+\beta_{3k}\,\mathrm{absences}
++
+\beta_{4k}\,\mathrm{sex}
++
+\beta_{5k}\,\mathrm{school},
+\qquad
+k \in \{A,B,C,D,E\}.
+$$
+
+$$
+P(G_{\mathrm{cat}}=k)
+=
+\frac{\exp(\eta_k)}
+{1+\displaystyle\sum_{j\in\{A,B,C,D,E\}}\exp(\eta_j)}
+$$
+
+```{r}
+# Referencia é F
+modelo <- vglm(
+  G_cat ~ age + studytime + absences + sex + school,
+  family = multinomial,
+  data = student_mat
+)
+
+modelo
+```

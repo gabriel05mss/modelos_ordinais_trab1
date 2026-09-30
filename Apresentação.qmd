@@ -5,48 +5,90 @@ editor: visual
 ---
 
 ```{r, settings}
-
-
 library(readr)
 library(dplyr)
 library(ggplot2)
 library(VGAM)
-```
+library(ordinal)
+library(gtsummary)
+library(MASS)
+library(broom)
+library(gt)
+library(tibble)
+library(purrr)
+library(pscl)
 
-Organizando Bacno e Categorizando
+```
 
 ```{r}
 student_mat <- read_delim("student-mat.csv", 
     delim = ";", escape_double = FALSE, trim_ws = TRUE)
 
-student_mat$G <- student_mat$G1  + student_mat$G2 + student_mat$G3
-
 student_mat <- student_mat %>%
   mutate(
+    G3 = 5 * G3,
     G_cat = case_when(
-      G < 36 ~ "F",
-      G >= 36 & G <= 40 ~ "A",
-      G >= 41 & G <= 45 ~ "B",
-      G >= 46 & G <= 50 ~ "C",
-      G >= 51 & G <= 55 ~ "D",
-      G >= 56 & G <= 60 ~ "E",
+      G3 < 40 ~ "E",
+      G3 >= 90 ~ "A",
+      G3 >= 75 & G3 <= 89 ~ "B",
+      G3 >= 60 & G3 <= 74 ~ "C",
+      G3 >= 40 & G3 <= 59 ~ "D",
       TRUE ~ NA_character_
     ),
     G_cat = factor(
       G_cat,
-      levels = c("F", "E", "D", "C", "B", "A")
+      levels = c("E", "D", "C", "B", "A")
+    ),
+    G_bin = case_when(
+      G3 <= 59 ~ 0,
+      TRUE ~ 1
+    ),
+    studytime = case_when(
+      studytime == 1 ~ "<2h",
+      studytime == 2 ~ "2-4",
+      studytime == 3 ~ "5-10",
+      studytime == 4 ~ ">10"
+    ),
+    studytime = factor(
+      studytime,
+      levels = c("<2h", "2-4", "5-10", ">10")
+    ),
+    traveltime = case_when(
+      traveltime == 1 ~ "<15 min",
+      traveltime == 2 ~ "15-50 min",
+      traveltime == 3 ~ "30-60 min",
+      traveltime == 4 ~ ">60 min"
+    ),
+    traveltime = factor(
+      traveltime,
+      levels = c("<15 min", "15-50 min", "30-60 min", ">60 min")
+    ),
+    Pstatus = case_when(
+      Pstatus == "A" ~ "Morando separados",
+      TRUE ~ "Morando Juntos"
+    ),
+    #1 muito ruim 5 muito bom
+    famrel = case_when(
+      famrel == 1 ~ "Muito ruim",
+      famrel == 2 ~ "Ruim",
+      famrel == 3 ~ "Regular",
+      famrel == 4 ~ "Bom",
+      famrel == 5 ~ "Muito bom"
+    ),
+    famrel = factor(
+      famrel,
+      levels = c("Muito ruim", "Ruim", "Regular", "Bom", "Muito bom")
     )
   )
 
-student_mat$G_cat <- relevel(student_mat$G_cat, ref = "F")
+student_mat$G_cat <- relevel(student_mat$G_cat, ref = "E")
 
 cores_G <- c(
   "A" = "#1a9850",  # verde
   "B" = "#66bd63",  # verde claro
   "C" = "#fee08b",  # amarelo
   "D" = "#fc8d59",  # laranja
-  "E" = "#f46d43",   # laranja/vermelho
-  "F" = "#d73027"  # vermelho
+  "E" = "#d73027"  # vermelho
 )
 ```
 
@@ -55,7 +97,6 @@ Análise Descritiva
 Categóricas
 
 ```{r}
-
 student_mat %>%
   count(G_cat) %>%
   mutate(
@@ -80,8 +121,6 @@ student_mat %>%
     panel.grid.major.x = element_blank(),
     panel.grid.minor = element_blank()
   )
-
-
 ```
 
 ```{r}
@@ -107,7 +146,7 @@ student_mat %>%
     limits = c(0, 100)
   ) +
   labs(
-    title = "Distribuição das categorias de G por escola",
+    title = "Distribuição das categorias de notas por escola",
     x = "School",
     y = "Percentual",
     fill = "Categoria"
@@ -143,7 +182,7 @@ student_mat %>%
     limits = c(0, 100)
   ) +
   labs(
-    title = "Distribuição das categorias de G por Sex",
+    title = "Distribuição das categorias de notas por Gênero",
     x = "Sex",
     y = "Percentual",
     fill = "Categoria"
@@ -156,10 +195,9 @@ student_mat %>%
   )
 ```
 
-Numéricas
 
 ```{r}
-student_mat %>%
+tabela_idade <- student_mat %>%
   group_by(G_cat) %>%
   summarise(
     n = sum(!is.na(age)),
@@ -171,15 +209,15 @@ student_mat %>%
   )
 
 student_mat %>%
-  ggplot(aes(x = G_cat, y = age, fill = G_cat)) +
-  geom_boxplot() +
+  ggplot(aes(x = age, fill = G_cat)) +
+  geom_bar() +
   scale_fill_manual(
     values = cores_G
   ) +
   labs(
-    title = "Distribuição da idade por categoria de G",
-    x = "Categoria de G",
-    y = "Idade",
+    title = "Distribuição da idade por categoria de nota",
+    y = "Count",
+    x = "Idade",
     fill = "Categoria"
   ) +
   theme_minimal() +
@@ -187,50 +225,47 @@ student_mat %>%
     plot.title = element_text(face = "bold"),
     panel.grid.major.x = element_blank()
   )
+
+
 ```
 
 ```{r}
 student_mat %>%
-  group_by(G_cat) %>%
-  summarise(
-    n = sum(!is.na(studytime)),
-    media = mean(studytime, na.rm = TRUE),
-    dp = sd(studytime, na.rm = TRUE),
-    mediana = median(studytime, na.rm = TRUE),
-    Q1 = quantile(studytime, 0.25, na.rm = TRUE),
-    Q3 = quantile(studytime, 0.75, na.rm = TRUE)
-  )
-
-student_mat %>%
-  ggplot(aes(x = G_cat, y = studytime, fill = G_cat)) +
-  geom_boxplot() +
+  count(studytime, G_cat) %>%
+  group_by(studytime) %>%
+  mutate(
+    porcentagem = 100 * n / sum(n)
+  ) %>%
+  ungroup() %>%
+  ggplot(aes(x = studytime, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    position = position_stack(vjust = 0.5),
+    size = 3
+  ) +
   scale_fill_manual(
     values = cores_G
   ) +
-  labs(
-    title = "Distribuição do tempo de estudo por categoria de G",
-    x = "Categoria de G",
-    y = "Tempo de estudo",
-    fill = "Categoria"
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    limits = c(0, 100)
   ) +
+  labs(
+    title = "Distribuição das categorias de notas por tempo de estudo",
+    x = "Tempo de Estudo",
+    y = "Percentual",
+    fill = "Categoria"
+  ) + 
   theme_minimal() +
   theme(
-    plot.title = element_text(face = "bold"),
-    panel.grid.major.x = element_blank()
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
   )
 ```
 
 ```{r}
-student_mat %>%
-  group_by(G_cat) %>%
-  summarise(
-    n = sum(!is.na(absences)),
-    media = mean(absences, na.rm = TRUE),
-    dp = sd(absences, na.rm = TRUE),
-    mediana = median(absences, na.rm = TRUE),
-    Q1 = quantile(absences, 0.25, na.rm = TRUE),
-    Q3 = quantile(absences, 0.75, na.rm = TRUE)
-  )
 
 student_mat %>%
   ggplot(aes(x = G_cat, y = absences, fill = G_cat)) +
@@ -239,7 +274,7 @@ student_mat %>%
     values = cores_G
   ) +
   labs(
-    title = "Distribuição das faltas por categoria de G",
+    title = "Distribuição das faltas por categoria de nota",
     x = "Categoria de G",
     y = "Número de faltas",
     fill = "Categoria"
@@ -251,51 +286,302 @@ student_mat %>%
   )
 ```
 
-Modelagem
-
-$$
-\operatorname{logit}\left[P(G_{\mathrm{cat}}=k)\right]
-=
-\log\left(
-\frac{P(G_{\mathrm{cat}}=k)}
-{P(G_{\mathrm{cat}}=F)}
-\right)
-=
-\eta_k
-$$
-
-$$
-\eta_k
-=
-\beta_{0k}
-+
-\beta_{1k}\,\mathrm{age}
-+
-\beta_{2k}\,\mathrm{studytime}
-+
-\beta_{3k}\,\mathrm{absences}
-+
-\beta_{4k}\,\mathrm{sex}
-+
-\beta_{5k}\,\mathrm{school},
-\qquad
-k \in \{A,B,C,D,E\}.
-$$
-
-$$
-P(G_{\mathrm{cat}}=k)
-=
-\frac{\exp(\eta_k)}
-{1+\displaystyle\sum_{j\in\{A,B,C,D,E\}}\exp(\eta_j)}
-$$
+```{r}
+student_mat %>%
+  count(traveltime, G_cat) %>%
+  group_by(traveltime) %>%
+  mutate(
+    porcentagem = 100 * n / sum(n)
+  ) %>%
+  ungroup() %>%
+  ggplot(aes(x = traveltime, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    position = position_stack(vjust = 0.5),
+    size = 3
+  ) +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    limits = c(0, 100)
+  ) +
+  labs(
+    title = "Distribuição das categorias de notas por Gênero",
+    x = "tempo de deslocamento",
+    y = "Pertencentual",
+    fill = "Categoria"
+  ) + 
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+```
 
 ```{r}
-# Referencia é F
-modelo <- vglm(
-  G_cat ~ age + studytime + absences + sex + school,
-  family = multinomial,
+
+student_mat %>%
+  count(Pstatus, G_cat) %>%
+  group_by(Pstatus) %>%
+  mutate(
+    porcentagem = 100 * n / sum(n)
+  ) %>%
+  ungroup() %>%
+  ggplot(aes(x = Pstatus, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    position = position_stack(vjust = 0.5),
+    size = 3
+  ) +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    limits = c(0, 100)
+  ) +
+  labs(
+    title = "Distribuição das categorias de notas por Status parental",
+    x = "Status parental",
+    y = "Percentual",
+    fill = "Categoria"
+  ) + # T morando junto e A separado
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+```
+
+```{r}
+student_mat %>%
+  count(famrel, G_cat) %>%
+  group_by(famrel) %>%
+  mutate(
+    porcentagem = 100 * n / sum(n)
+  ) %>%
+  ungroup() %>%
+  ggplot(aes(x = famrel, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    position = position_stack(vjust = 0.5),
+    size = 3
+  ) +
+  scale_fill_manual(
+    values = cores_G
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    limits = c(0, 100)
+  ) +
+  labs(
+    title = "Distribuição das categorias de notas por Relação familiar",
+    x = "Relação familiar",
+    y = "Percentual",
+    fill = "Categoria"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+```
+
+## Modelo Inicial
+
+```{r}
+
+modelo <- clm(
+  G_cat ~ sex + age + studytime + absences + traveltime + Pstatus + famrel,
   data = student_mat
 )
 
-modelo
+tbl_regression(
+  modelo,
+  exponentiate = T
+)
+```
+
+## Stepwise AIC
+```{r}
+modelo_step <- stepAIC(
+  modelo,
+  direction = "both",
+  trace = FALSE
+)
+
+tbl_regression(
+  modelo_step,
+  exponentiate = TRUE
+)
+```
+
+## Teste Odds proporcionais
+
+```{r}
+nominal_test(modelo) %>% tbl_regression()
+```
+
+## Modelo Odds propocionais parciais
+```{r}
+modelo_parcial <- clm(G_cat ~ sex + age + studytime + traveltime + Pstatus + famrel,
+                      nominal = ~ absences,
+                      data = student_mat
+                    )
+
+tab <- as.data.frame(coef(summary(modelo_parcial))) %>%
+  rownames_to_column("term")
+
+loc <- tab %>%
+  filter(
+    !grepl("\\|", term)
+  ) %>%
+  mutate(
+    Tipo = "Odds proporcionais",
+    OR = exp(Estimate),
+    IC_inf = exp(Estimate - 1.96 * `Std. Error`),
+    IC_sup = exp(Estimate + 1.96 * `Std. Error`)
+  )
+
+nom <- tab %>%
+  filter(
+    grepl("absences", term)
+  ) %>%
+  mutate(
+    Tipo = "Odds não proporcionais",
+    OR = exp(Estimate),
+    IC_inf = exp(Estimate - 1.96 * `Std. Error`),
+    IC_sup = exp(Estimate + 1.96 * `Std. Error`)
+  )
+
+resultado <- bind_rows(loc, nom) %>%
+  transmute(
+    Tipo,
+    Termo = term,
+    Beta = round(Estimate, 3),
+    OR = round(OR, 3),
+    `IC95%` = sprintf(
+      "(%.3f ; %.3f)",
+      IC_inf,
+      IC_sup
+    ),
+    `p-valor` = round(`Pr(>|z|)`, 4)
+  )
+
+resultado %>%
+  gt(groupname_col = "Tipo")
+
+```
+
+```{r}
+modelo_step_parcial <- stepAIC(
+  modelo_parcial,
+  direction = "both",
+  trace = FALSE
+)
+
+tab <- as.data.frame(coef(summary(modelo_step_parcial))) %>%
+  rownames_to_column("term")
+
+loc <- tab %>%
+  filter(
+    !grepl("\\|", term)
+  ) %>%
+  mutate(
+    Tipo = "Odds proporcionais",
+    OR = exp(Estimate),
+    IC_inf = exp(Estimate - 1.96 * `Std. Error`),
+    IC_sup = exp(Estimate + 1.96 * `Std. Error`)
+  )
+
+nom <- tab %>%
+  filter(
+    grepl("absences", term)
+  ) %>%
+  mutate(
+    Tipo = "Odds não proporcionais",
+    OR = exp(Estimate),
+    IC_inf = exp(Estimate - 1.96 * `Std. Error`),
+    IC_sup = exp(Estimate + 1.96 * `Std. Error`)
+  )
+
+resultado <- bind_rows(loc, nom) %>%
+  transmute(
+    Tipo,
+    Termo = term,
+    Beta = round(Estimate, 3),
+    OR = round(OR, 3),
+    `IC95%` = sprintf(
+      "(%.3f ; %.3f)",
+      IC_inf,
+      IC_sup
+    ),
+    `p-valor` = round(`Pr(>|z|)`, 4)
+  )
+
+resultado %>%
+  gt(groupname_col = "Tipo")
+```
+
+## Modelo binario
+```{r}
+modelo_binario <- glm(
+  G_bin ~ sex + age + studytime + absences + traveltime + Pstatus + famrel,
+  data = student_mat,
+  family = binomial(link = "logit")
+  )
+
+tbl_regression(modelo_binario, exponentiate = T)
+```
+
+```{r}
+modelo_step_bin <- stepAIC(
+  modelo_binario,
+  direction = "both",
+  trace = FALSE
+)
+
+tbl_regression(modelo_step_bin, exponentiate = T)
+```
+
+```{r}
+
+modelos <- list(
+  "Ordinal" = modelo,
+  "Ordinal Step" = modelo_step,
+  "Ordinal Parcial" = modelo_parcial,
+  "Ordinal Parcial Step" = modelo_step_parcial,
+  "Binário" = modelo_binario,
+  "Binário Step" = modelo_step_bin
+)
+
+comparacao <- map_dfr(
+  names(modelos),
+  \(nome) {
+
+    mod <- modelos[[nome]]
+
+    tibble(
+      Modelo = nome,
+      AIC = AIC(mod),
+      BIC = BIC(mod),
+      LogLik = as.numeric(logLik(mod))
+    )
+  }
+)
+
+comparacao %>%
+  gt() %>%
+  fmt_number(
+    columns = c(AIC, BIC, LogLik),
+    decimals = 2
+  )
 ```

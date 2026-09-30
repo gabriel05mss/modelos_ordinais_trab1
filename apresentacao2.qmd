@@ -1,0 +1,409 @@
+---
+title: "Trabalho"
+format:
+  pptx:
+    slide-level: 2
+execute:
+  echo: false
+  warning: false
+  message: false
+fig-width: 10
+fig-height: 4.6
+fig-dpi: 200
+editor: visual
+---
+
+```{r settings}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(VGAM)
+library(ordinal)
+library(gtsummary)
+library(MASS)
+library(broom)
+library(flextable)
+library(tibble)
+library(purrr)
+library(pscl)
+
+select <- dplyr::select  # MASS mascara o select do dplyr
+
+# Cabeçalhos das tabelas do gtsummary em português (Variável, IC 95%, p-valor)
+theme_gtsummary_language("pt")
+
+# Formata qualquer tabela para caber no slide:
+# fonte menor, pouco espaçamento vertical e largura ajustada ao conteúdo
+ft <- function(x, size = 11) {
+  if (inherits(x, "gtsummary")) {
+    x <- as_flex_table(x)
+  } else if (!inherits(x, "flextable")) {
+    x <- flextable(x)
+  }
+  x %>%
+    fontsize(size = size, part = "all") %>%
+    padding(padding.top = 1, padding.bottom = 1, part = "all") %>%
+    autofit()
+}
+```
+
+```{r dados}
+student_mat <- read_delim("student-mat.csv",
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+student_mat <- student_mat %>%
+  mutate(
+    G3 = 5 * G3,
+    G_cat = case_when(
+      G3 < 40 ~ "E",
+      G3 >= 90 ~ "A",
+      G3 >= 75 & G3 <= 89 ~ "B",
+      G3 >= 60 & G3 <= 74 ~ "C",
+      G3 >= 40 & G3 <= 59 ~ "D",
+      TRUE ~ NA_character_
+    ),
+    G_cat = factor(
+      G_cat,
+      levels = c("E", "D", "C", "B", "A")
+    ),
+    G_bin = case_when(
+      G3 <= 59 ~ 0,
+      TRUE ~ 1
+    ),
+    studytime = case_when(
+      studytime == 1 ~ "<2h",
+      studytime == 2 ~ "2-4",
+      studytime == 3 ~ "5-10",
+      studytime == 4 ~ ">10"
+    ),
+    studytime = factor(
+      studytime,
+      levels = c("<2h", "2-4", "5-10", ">10")
+    ),
+    traveltime = case_when(
+      traveltime == 1 ~ "<15 min",
+      traveltime == 2 ~ "15-30 min",
+      traveltime == 3 ~ "30-60 min",
+      traveltime == 4 ~ ">60 min"
+    ),
+    traveltime = factor(
+      traveltime,
+      levels = c("<15 min", "15-30 min", "30-60 min", ">60 min")
+    ),
+    Pstatus = case_when(
+      Pstatus == "A" ~ "Morando separados",
+      TRUE ~ "Morando Juntos"
+    ),
+    #1 muito ruim 5 muito bom
+    famrel = case_when(
+      famrel == 1 ~ "Muito ruim",
+      famrel == 2 ~ "Ruim",
+      famrel == 3 ~ "Regular",
+      famrel == 4 ~ "Bom",
+      famrel == 5 ~ "Muito bom"
+    ),
+    famrel = factor(
+      famrel,
+      levels = c("Muito ruim", "Ruim", "Regular", "Bom", "Muito bom")
+    )
+  )
+
+student_mat$G_cat <- relevel(student_mat$G_cat, ref = "E")
+
+cores_G <- c(
+  "A" = "#1a9850",  # verde
+  "B" = "#66bd63",  # verde claro
+  "C" = "#fee08b",  # amarelo
+  "D" = "#fc8d59",  # laranja
+  "E" = "#d73027"   # vermelho
+)
+
+# Tema comum dos gráficos (o título fica no slide, não no gráfico)
+tema <- theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+# Barras empilhadas (%) de G_cat por uma variável categórica
+barras_cat <- function(var, rotulo_x) {
+  student_mat %>%
+    count({{ var }}, G_cat) %>%
+    group_by({{ var }}) %>%
+    mutate(porcentagem = 100 * n / sum(n)) %>%
+    ungroup() %>%
+    ggplot(aes(x = {{ var }}, y = porcentagem, fill = G_cat)) +
+    geom_col() +
+    geom_text(
+      aes(label = paste0(round(porcentagem, 1), "%")),
+      position = position_stack(vjust = 0.5),
+      size = 3.5
+    ) +
+    scale_fill_manual(values = cores_G) +
+    scale_y_continuous(
+      labels = function(x) paste0(x, "%"),
+      limits = c(0, 100)
+    ) +
+    labs(x = rotulo_x, y = "Percentual", fill = "Categoria") +
+    tema
+}
+```
+
+# Análise Descritiva
+
+## Distribuição das categorias de desempenho
+
+```{r}
+student_mat %>%
+  count(G_cat) %>%
+  mutate(porcentagem = 100 * n / sum(n)) %>%
+  ggplot(aes(x = G_cat, y = porcentagem, fill = G_cat)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(porcentagem, 1), "%")),
+    vjust = -0.5
+  ) +
+  scale_fill_manual(values = cores_G) +
+  labs(x = "Categoria", y = "Percentual (%)", fill = "Categoria") +
+  tema
+```
+
+## Categorias de nota por escola
+
+```{r}
+barras_cat(school, "Escola")
+```
+
+## Categorias de nota por gênero
+
+```{r}
+barras_cat(sex, "Sexo")
+```
+
+## Idade por categoria de nota
+
+```{r}
+student_mat %>%
+  ggplot(aes(x = age, fill = G_cat)) +
+  geom_bar() +
+  scale_fill_manual(values = cores_G) +
+  labs(x = "Idade", y = "Frequência", fill = "Categoria") +
+  tema
+```
+
+## Categorias de nota por tempo de estudo
+
+```{r}
+barras_cat(studytime, "Tempo de estudo semanal")
+```
+
+## Faltas por categoria de nota
+
+```{r}
+student_mat %>%
+  ggplot(aes(x = G_cat, y = absences, fill = G_cat)) +
+  geom_boxplot() +
+  scale_fill_manual(values = cores_G) +
+  labs(x = "Categoria de nota", y = "Número de faltas", fill = "Categoria") +
+  tema
+```
+
+## Categorias de nota por tempo de deslocamento
+
+```{r}
+barras_cat(traveltime, "Tempo de deslocamento")
+```
+
+## Categorias de nota por status parental
+
+```{r}
+barras_cat(Pstatus, "Status parental")
+```
+
+## Categorias de nota por relação familiar
+
+```{r}
+barras_cat(famrel, "Relação familiar")
+```
+
+# Modelagem
+
+```{r modelos}
+modelo <- clm(
+  G_cat ~ sex + age + studytime + absences + traveltime + Pstatus + famrel,
+  data = student_mat
+)
+
+modelo_step <- stepAIC(modelo, direction = "both", trace = FALSE)
+
+modelo_parcial <- clm(
+  G_cat ~ sex + age + studytime + traveltime + Pstatus + famrel,
+  nominal = ~ absences,
+  data = student_mat
+)
+
+modelo_step_parcial <- stepAIC(modelo_parcial, direction = "both", trace = FALSE)
+
+modelo_binario <- glm(
+  G_bin ~ sex + age + studytime + absences + traveltime + Pstatus + famrel,
+  data = student_mat,
+  family = binomial(link = "logit")
+)
+
+modelo_step_bin <- stepAIC(modelo_binario, direction = "both", trace = FALSE)
+
+# Tabela do modelo de odds proporcionais parciais (efeitos proporcionais e não proporcionais)
+tab_parcial <- function(mod) {
+  as.data.frame(coef(summary(mod))) %>%
+    rownames_to_column("term") %>%
+    filter(!grepl("^[A-E]\\|[A-E]$", term)) %>%   # remove os interceptos
+    mutate(
+      Tipo = if_else(grepl("\\|", term), "Odds não proporcionais", "Odds proporcionais"),
+      OR = exp(Estimate),
+      IC_inf = exp(Estimate - 1.96 * `Std. Error`),
+      IC_sup = exp(Estimate + 1.96 * `Std. Error`)
+    ) %>%
+    transmute(
+      Tipo,
+      Termo = term,
+      `β` = round(Estimate, 3),
+      OR = round(OR, 3),
+      `IC 95%` = sprintf("(%.3f ; %.3f)", IC_inf, IC_sup),
+      `p-valor` = round(`Pr(>|z|)`, 4)
+    )
+}
+
+# Tabela agrupada (linha de grupo "Odds proporcionais" / "Odds não proporcionais")
+ft_grupo <- function(df, size = 11) {
+  as_grouped_data(df, groups = "Tipo") %>%
+    as_flextable(hide_grouplabel = TRUE) %>%
+    fontsize(size = size, part = "all") %>%
+    padding(padding.top = 1, padding.bottom = 1, part = "all") %>%
+    autofit()
+}
+```
+
+## Modelo ordinal inicial (odds proporcionais)
+
+::::: columns
+::: {.column width="50%"}
+```{r}
+tbl_regression(modelo, exponentiate = TRUE,
+               include = c(sex, age, studytime, absences)) %>%
+  ft(size = 11)
+```
+:::
+
+::: {.column width="50%"}
+```{r}
+tbl_regression(modelo, exponentiate = TRUE,
+               include = c(traveltime, Pstatus, famrel)) %>%
+  ft(size = 11)
+```
+:::
+:::::
+
+## Modelo ordinal — seleção Stepwise (AIC)
+
+```{r}
+tbl_regression(modelo_step, exponentiate = TRUE) %>%
+  ft(size = 13)
+```
+
+## Teste de odds proporcionais (nominal_test)
+
+```{r}
+nominal_test(modelo) %>%
+  as.data.frame() %>%
+  rownames_to_column("Variável") %>%
+  filter(Variável != "<none>") %>%
+  transmute(
+    Variável,
+    LRT = round(LRT, 2),
+    gl = Df,
+    `p-valor` = ifelse(is.na(`Pr(>Chi)`), "—",
+                       format.pval(`Pr(>Chi)`, digits = 3, eps = 0.001))
+  ) %>%
+  ft(size = 13)
+```
+
+## Modelo de odds proporcionais parciais
+
+```{r}
+tab_mp <- tab_parcial(modelo_parcial)
+```
+
+::::: columns
+::: {.column width="55%"}
+```{r}
+tab_mp %>% filter(Tipo == "Odds proporcionais") %>% ft_grupo(size = 10)
+```
+:::
+
+::: {.column width="45%"}
+```{r}
+tab_mp %>% filter(Tipo == "Odds não proporcionais") %>% ft_grupo(size = 10)
+```
+:::
+:::::
+
+## Odds proporcionais parciais — seleção Stepwise (AIC)
+
+```{r}
+tab_parcial(modelo_step_parcial) %>% ft_grupo(size = 12)
+```
+
+## Modelo binário (logístico)
+
+::::: columns
+::: {.column width="50%"}
+```{r}
+tbl_regression(modelo_binario, exponentiate = TRUE,
+               include = c(sex, age, studytime, absences)) %>%
+  ft(size = 11)
+```
+:::
+
+::: {.column width="50%"}
+```{r}
+tbl_regression(modelo_binario, exponentiate = TRUE,
+               include = c(traveltime, Pstatus, famrel)) %>%
+  ft(size = 11)
+```
+:::
+:::::
+
+## Modelo binário — seleção Stepwise (AIC)
+
+```{r}
+tbl_regression(modelo_step_bin, exponentiate = TRUE) %>%
+  ft(size = 11)
+```
+
+## Comparação dos modelos
+
+```{r}
+modelos <- list(
+  "Ordinal" = modelo,
+  "Ordinal Step" = modelo_step,
+  "Ordinal Parcial" = modelo_parcial,
+  "Ordinal Parcial Step" = modelo_step_parcial,
+  "Binário" = modelo_binario,
+  "Binário Step" = modelo_step_bin
+)
+
+map_dfr(
+  names(modelos),
+  \(nome) {
+    mod <- modelos[[nome]]
+    tibble(
+      Modelo = nome,
+      AIC = AIC(mod),
+      BIC = BIC(mod),
+      LogLik = as.numeric(logLik(mod))
+    )
+  }
+) %>%
+  ft(size = 14) %>%
+  colformat_double(j = c("AIC", "BIC", "LogLik"), digits = 2)
+```

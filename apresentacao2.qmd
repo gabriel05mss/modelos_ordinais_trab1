@@ -3,6 +3,7 @@ title: "Trabalho"
 format:
   pptx:
     slide-level: 2
+    reference-doc: modelo.pptx
 execute:
   echo: false
   warning: false
@@ -29,21 +30,52 @@ library(pscl)
 
 select <- dplyr::select  # MASS mascara o select do dplyr
 
-# Cabeçalhos das tabelas do gtsummary em português (Variável, IC 95%, p-valor)
-theme_gtsummary_language("pt")
-
-# Formata qualquer tabela para caber no slide:
-# fonte menor, pouco espaçamento vertical e largura ajustada ao conteúdo
-ft <- function(x, size = 11) {
-  if (inherits(x, "gtsummary")) {
-    x <- as_flex_table(x)
-  } else if (!inherits(x, "flextable")) {
-    x <- flextable(x)
-  }
-  x %>%
+# ---------------------------------------------------------------------------
+# Estilo das tabelas: cabeçalho azul, linhas zebradas, fonte pequena e
+# espaçamento vertical mínimo, para caberem no slide
+# ---------------------------------------------------------------------------
+estilo <- function(ft, size = 11) {
+  n <- nrow_part(ft, "body")
+  nc <- ncol_keys(ft)
+  pares <- seq_len(n)[seq_len(n) %% 2 == 0]
+  ft %>%
+    font(fontname = "Calibri", part = "all") %>%
     fontsize(size = size, part = "all") %>%
-    padding(padding.top = 1, padding.bottom = 1, part = "all") %>%
-    autofit()
+    bg(part = "header", bg = "#4F81BD") %>%
+    color(part = "header", color = "white") %>%
+    bold(part = "header") %>%
+    bg(bg = "#D0D8E8", part = "body") %>%
+    bg(i = pares, bg = "#E9EDF4", part = "body") %>%
+    border_remove() %>%
+    padding(padding.top = 1, padding.bottom = 1, padding.left = 4, padding.right = 4, part = "all") %>%
+    align(j = 2:nc, align = "center", part = "all") %>%
+    fontsize(size = 9, part = "footer") %>%
+    italic(part = "footer") %>%
+    color(part = "footer", color = "#595959") %>%
+    bg(part = "footer", bg = "white") %>%
+    autofit() %>%
+    # altura fixa das linhas (evita que o PowerPoint "estique" a tabela)
+    height(height = size / 72 * 1.6, part = "body") %>%
+    height(height = size / 72 * 1.6, part = "header") %>%
+    hrule(rule = "exact", part = "body") %>%
+    hrule(rule = "exact", part = "header")
+}
+
+# Tabela do gtsummary (tbl_regression) -> flextable no estilo acima
+ft_reg <- function(tbl, size = 11) {
+  tbl %>%
+    bold_labels() %>%
+    modify_header(label = "**Variável**", p.value = "**p-valor**") %>%
+    modify_header(any_of("conf.low") ~ "**IC 95%**") %>%
+    remove_abbreviation() %>%
+    as_flex_table() %>%
+    add_footer_lines("OR = Odds Ratio; IC = Intervalo de Confiança.") %>%
+    estilo(size)
+}
+
+# Data frame simples -> flextable no estilo acima
+ft_df <- function(df, size = 11) {
+  flextable(df) %>% estilo(size)
 }
 ```
 
@@ -118,7 +150,7 @@ cores_G <- c(
   "E" = "#d73027"   # vermelho
 )
 
-# Tema comum dos gráficos (o título fica no slide, não no gráfico)
+# Tema comum dos gráficos (o título fica no slide, não dentro do gráfico)
 tema <- theme_minimal(base_size = 14) +
   theme(
     panel.grid.major.x = element_blank(),
@@ -236,6 +268,11 @@ modelo <- clm(
 
 modelo_step <- stepAIC(modelo, direction = "both", trace = FALSE)
 
+modelo_step_traveltime <- clm(
+  G_cat ~ sex + age + studytime + traveltime,
+  data = student_mat
+  )
+  
 modelo_parcial <- clm(
   G_cat ~ sex + age + studytime + traveltime + Pstatus + famrel,
   nominal = ~ absences,
@@ -251,80 +288,94 @@ modelo_binario <- glm(
 )
 
 modelo_step_bin <- stepAIC(modelo_binario, direction = "both", trace = FALSE)
+ 
+# Deixa os nomes dos termos mais legíveis: "studytime2-4" -> "studytime: 2-4"
+nome_termo <- function(t) {
+  t <- sub("^(sex|studytime|traveltime|Pstatus|famrel)(.+)$", "\\1: \\2", t)
+  sub("Morando separados", "separados", t)
+}
 
-# Tabela do modelo de odds proporcionais parciais (efeitos proporcionais e não proporcionais)
+# Tabela do modelo de odds proporcionais parciais
 tab_parcial <- function(mod) {
   as.data.frame(coef(summary(mod))) %>%
     rownames_to_column("term") %>%
-    filter(!grepl("^[A-E]\\|[A-E]$", term)) %>%   # remove os interceptos
+    # remove os interceptos (pontos de corte): "E|D" e "E|D.(Intercept)"
+    filter(!grepl("Intercept", term), !grepl("^[A-E]\\|[A-E]$", term)) %>%
     mutate(
       Tipo = if_else(grepl("\\|", term), "Odds não proporcionais", "Odds proporcionais"),
+      Tipo = factor(Tipo, levels = c("Odds proporcionais", "Odds não proporcionais")),
       OR = exp(Estimate),
       IC_inf = exp(Estimate - 1.96 * `Std. Error`),
       IC_sup = exp(Estimate + 1.96 * `Std. Error`)
     ) %>%
+    arrange(Tipo) %>%
     transmute(
       Tipo,
-      Termo = term,
-      `β` = round(Estimate, 3),
-      OR = round(OR, 3),
+      Termo = nome_termo(term),
+      `β` = sprintf("%.3f", Estimate),
+      OR = sprintf("%.3f", OR),
       `IC 95%` = sprintf("(%.3f ; %.3f)", IC_inf, IC_sup),
-      `p-valor` = round(`Pr(>|z|)`, 4)
+      `p-valor` = sprintf("%.4f", `Pr(>|z|)`)
     )
 }
 
-# Tabela agrupada (linha de grupo "Odds proporcionais" / "Odds não proporcionais")
+# Tabela com linhas de grupo ("Odds proporcionais" / "Odds não proporcionais")
 ft_grupo <- function(df, size = 11) {
-  as_grouped_data(df, groups = "Tipo") %>%
+  ft <- as_grouped_data(df, groups = "Tipo") %>%
     as_flextable(hide_grouplabel = TRUE) %>%
-    fontsize(size = size, part = "all") %>%
-    padding(padding.top = 1, padding.bottom = 1, part = "all") %>%
-    autofit()
+    estilo(size)
+  grupos <- which(!is.na(ft$body$dataset$Tipo))
+  ft %>% bold(i = grupos, part = "body")
 }
 ```
 
 ## Modelo ordinal inicial (odds proporcionais)
 
-::::: columns
-::: {.column width="50%"}
 ```{r}
+#| ft.left: 0.5
+#| ft.top: 1.0
 tbl_regression(modelo, exponentiate = TRUE,
                include = c(sex, age, studytime, absences)) %>%
-  ft(size = 11)
+  ft_reg(size = 11)
 ```
-:::
 
-::: {.column width="50%"}
 ```{r}
+#| ft.left: 5.15
+#| ft.top: 1.0
 tbl_regression(modelo, exponentiate = TRUE,
                include = c(traveltime, Pstatus, famrel)) %>%
-  ft(size = 11)
+  ft_reg(size = 11)
 ```
-:::
-:::::
 
 ## Modelo ordinal — seleção Stepwise (AIC)
 
 ```{r}
+#| ft.left: 2.5
+#| ft.top: 1.0
 tbl_regression(modelo_step, exponentiate = TRUE) %>%
-  ft(size = 13)
+  ft_reg(size = 13)
 ```
 
 ## Teste de odds proporcionais (nominal_test)
 
 ```{r}
+#| ft.left: 2.75
+#| ft.top: 1.0
 nominal_test(modelo) %>%
   as.data.frame() %>%
   rownames_to_column("Variável") %>%
   filter(Variável != "<none>") %>%
   transmute(
     Variável,
-    LRT = round(LRT, 2),
-    gl = Df,
+    LRT = ifelse(is.na(LRT), "—", sprintf("%.2f", LRT)),
+    gl = ifelse(is.na(Df), "—", as.character(Df)),
     `p-valor` = ifelse(is.na(`Pr(>Chi)`), "—",
                        format.pval(`Pr(>Chi)`, digits = 3, eps = 0.001))
   ) %>%
-  ft(size = 13)
+  ft_df(size = 13) %>%
+  add_footer_lines("— : teste não estimável para a variável. p < 0,05 indica violação da suposição de odds proporcionais.") %>%
+  fontsize(size = 9, part = "footer") %>%
+  italic(part = "footer")
 ```
 
 ## Modelo de odds proporcionais parciais
@@ -333,56 +384,70 @@ nominal_test(modelo) %>%
 tab_mp <- tab_parcial(modelo_parcial)
 ```
 
-::::: columns
-::: {.column width="55%"}
 ```{r}
-tab_mp %>% filter(Tipo == "Odds proporcionais") %>% ft_grupo(size = 10)
+#| ft.left: 0.5
+#| ft.top: 1.0
+tab_mp %>% filter(Tipo == "Odds proporcionais") %>% ft_grupo(size = 11)
 ```
-:::
 
-::: {.column width="45%"}
 ```{r}
-tab_mp %>% filter(Tipo == "Odds não proporcionais") %>% ft_grupo(size = 10)
+#| ft.left: 5.5
+#| ft.top: 1.0
+tab_mp %>% filter(Tipo == "Odds não proporcionais") %>% ft_grupo(size = 11) %>%
+  add_footer_lines("Efeito não proporcional de absences: um coeficiente por ponto de corte.") %>%
+  fontsize(size = 9, part = "footer") %>%
+  italic(part = "footer")
 ```
-:::
-:::::
 
 ## Odds proporcionais parciais — seleção Stepwise (AIC)
 
 ```{r}
-tab_parcial(modelo_step_parcial) %>% ft_grupo(size = 12)
+#| ft.left: 1.5
+#| ft.top: 1.0
+tab_parcial(modelo_step_parcial) %>% ft_grupo(size = 13)
 ```
 
 ## Modelo binário (logístico)
 
-::::: columns
-::: {.column width="50%"}
 ```{r}
+#| ft.left: 0.5
+#| ft.top: 1.0
 tbl_regression(modelo_binario, exponentiate = TRUE,
                include = c(sex, age, studytime, absences)) %>%
-  ft(size = 11)
+  ft_reg(size = 11)
 ```
-:::
 
-::: {.column width="50%"}
 ```{r}
+#| ft.left: 5.15
+#| ft.top: 1.0
 tbl_regression(modelo_binario, exponentiate = TRUE,
                include = c(traveltime, Pstatus, famrel)) %>%
-  ft(size = 11)
+  ft_reg(size = 11)
 ```
-:::
-:::::
 
 ## Modelo binário — seleção Stepwise (AIC)
 
 ```{r}
-tbl_regression(modelo_step_bin, exponentiate = TRUE) %>%
-  ft(size = 11)
+#| ft.left: 0.5
+#| ft.top: 1.0
+tbl_regression(modelo_step_bin, exponentiate = TRUE,
+               include = c(sex, age, studytime)) %>%
+  ft_reg(size = 12)
+```
+
+```{r}
+#| ft.left: 5.15
+#| ft.top: 1.0
+tbl_regression(modelo_step_bin, exponentiate = TRUE,
+               include = c(absences, traveltime)) %>%
+  ft_reg(size = 12)
 ```
 
 ## Comparação dos modelos
 
 ```{r}
+#| ft.left: 2.0
+#| ft.top: 1.2
 modelos <- list(
   "Ordinal" = modelo,
   "Ordinal Step" = modelo_step,
@@ -404,6 +469,10 @@ map_dfr(
     )
   }
 ) %>%
-  ft(size = 14) %>%
-  colformat_double(j = c("AIC", "BIC", "LogLik"), digits = 2)
+  mutate(across(c(AIC, BIC, LogLik), \(x) formatC(x, format = "f", digits = 2, big.mark = ","))) %>%
+  ft_df(size = 14) %>%
+  padding(padding.top = 4, padding.bottom = 4, part = "all") %>%
+  add_footer_lines("Menores AIC/BIC indicam melhor ajuste. Ordinais e binários têm respostas diferentes: compare o AIC só dentro de cada família.") %>%
+  fontsize(size = 9, part = "footer") %>%
+  italic(part = "footer")
 ```
